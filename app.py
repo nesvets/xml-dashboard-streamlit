@@ -5,15 +5,15 @@ import pandas as pd
 import streamlit as st
 import xml.etree.ElementTree as ET
 
-# Для "фильтры как в таблицах"
+# Р”Р»СЏ "С„РёР»СЊС‚СЂС‹ РєР°Рє РІ С‚Р°Р±Р»РёС†Р°С…"
 from st_aggrid import AgGrid, GridOptionsBuilder, DataReturnMode, GridUpdateMode
 
 FEED_URL = "https://platinumlist.net/xml-feed/partnership-program"
 
-st.set_page_config(page_title="XML -> Table", layout="wide")
-st.title("XML feed > таблица с фильтрами и выгрузкой в Excel")
+st.set_page_config(page_title="XML в†’ Table", layout="wide")
+st.title("XML feed в†’ С‚Р°Р±Р»РёС†Р° СЃ С„РёР»СЊС‚СЂР°РјРё Рё РІС‹РіСЂСѓР·РєРѕР№ РІ Excel")
 
-@st.cache_data(ttl=300)  # кэш на 5 минут, чтобы не дергать XML слишком часто
+@st.cache_data(ttl=300)  # РєСЌС€ РЅР° 5 РјРёРЅСѓС‚, С‡С‚РѕР±С‹ РЅРµ РґРµСЂРіР°С‚СЊ XML СЃР»РёС€РєРѕРј С‡Р°СЃС‚Рѕ
 def load_xml(url: str) -> ET.Element:
     r = requests.get(url, timeout=30)
     r.raise_for_status()
@@ -21,14 +21,14 @@ def load_xml(url: str) -> ET.Element:
 
 def flatten_element(el: ET.Element, prefix: str = "") -> dict:
     """
-    Разворачивает XML-элемент в плоский dict:
-    - Листовые теги становятся колонками
-    - Атрибуты попадают как prefix@attr
-    - Вложенность кодируется через / (path)
+    Р Р°Р·РІРѕСЂР°С‡РёРІР°РµС‚ XML-СЌР»РµРјРµРЅС‚ РІ РїР»РѕСЃРєРёР№ dict:
+    - Р›РёСЃС‚РѕРІС‹Рµ С‚РµРіРё СЃС‚Р°РЅРѕРІСЏС‚СЃСЏ РєРѕР»РѕРЅРєР°РјРё
+    - РђС‚СЂРёР±СѓС‚С‹ РїРѕРїР°РґР°СЋС‚ РєР°Рє prefix@attr
+    - Р’Р»РѕР¶РµРЅРЅРѕСЃС‚СЊ РєРѕРґРёСЂСѓРµС‚СЃСЏ С‡РµСЂРµР· / (path)
     """
     row = {}
 
-    # Атрибуты
+    # РђС‚СЂРёР±СѓС‚С‹
     for k, v in el.attrib.items():
         row[f"{prefix}@{k}"] = v
 
@@ -39,7 +39,7 @@ def flatten_element(el: ET.Element, prefix: str = "") -> dict:
             row[prefix.rstrip("/")] = text
         return row
 
-    # Если есть дети — рекурсивно собираем
+    # Р•СЃР»Рё РµСЃС‚СЊ РґРµС‚Рё вЂ” СЂРµРєСѓСЂСЃРёРІРЅРѕ СЃРѕР±РёСЂР°РµРј
     for ch in children:
         ch_prefix = f"{prefix}{ch.tag}/"
         ch_children = list(ch)
@@ -50,13 +50,13 @@ def flatten_element(el: ET.Element, prefix: str = "") -> dict:
             key = f"{prefix}{ch.tag}"
             val = (ch.text or "").strip()
 
-            # если такой ключ уже был (повторяющиеся теги), аккуратно склеим
+            # РµСЃР»Рё С‚Р°РєРѕР№ РєР»СЋС‡ СѓР¶Рµ Р±С‹Р» (РїРѕРІС‚РѕСЂСЏСЋС‰РёРµСЃСЏ С‚РµРіРё), Р°РєРєСѓСЂР°С‚РЅРѕ СЃРєР»РµРёРј
             if key in row and row[key] != "":
                 row[key] = f"{row[key]} | {val}"
             else:
                 row[key] = val
 
-        # атрибуты детей тоже добавим
+        # Р°С‚СЂРёР±СѓС‚С‹ РґРµС‚РµР№ С‚РѕР¶Рµ РґРѕР±Р°РІРёРј
         for ak, av in ch.attrib.items():
             row[f"{prefix}{ch.tag}@{ak}"] = av
 
@@ -64,8 +64,8 @@ def flatten_element(el: ET.Element, prefix: str = "") -> dict:
 
 def find_repeating_nodes(root: ET.Element) -> list[ET.Element]:
     """
-    Пытается найти "строки" — узлы, которые повторяются (типичный паттерн: offers/offer и т.п.).
-    Берём самый массово повторяющийся уровень.
+    РџС‹С‚Р°РµС‚СЃСЏ РЅР°Р№С‚Рё "СЃС‚СЂРѕРєРё" вЂ” СѓР·Р»С‹, РєРѕС‚РѕСЂС‹Рµ РїРѕРІС‚РѕСЂСЏСЋС‚СЃСЏ (С‚РёРїРёС‡РЅС‹Р№ РїР°С‚С‚РµСЂРЅ: offers/offer Рё С‚.Рї.).
+    Р‘РµСЂС‘Рј СЃР°РјС‹Р№ РјР°СЃСЃРѕРІРѕ РїРѕРІС‚РѕСЂСЏСЋС‰РёР№СЃСЏ СѓСЂРѕРІРµРЅСЊ.
     """
     from collections import defaultdict
     buckets = defaultdict(list)
@@ -74,20 +74,20 @@ def find_repeating_nodes(root: ET.Element) -> list[ET.Element]:
         tags = [c.tag for c in list(parent)]
         if not tags:
             continue
-        # группируем детей по тегу
+        # РіСЂСѓРїРїРёСЂСѓРµРј РґРµС‚РµР№ РїРѕ С‚РµРіСѓ
         counts = {}
         for t in tags:
             counts[t] = counts.get(t, 0) + 1
-        # если есть повторяющийся тег — вероятно это "строки"
+        # РµСЃР»Рё РµСЃС‚СЊ РїРѕРІС‚РѕСЂСЏСЋС‰РёР№СЃСЏ С‚РµРі вЂ” РІРµСЂРѕСЏС‚РЅРѕ СЌС‚Рѕ "СЃС‚СЂРѕРєРё"
         for t, cnt in counts.items():
             if cnt >= 2:
                 buckets[(parent.tag, t)].extend(parent.findall(t))
 
     if not buckets:
-        # fallback: берём прямых детей рута как строки
+        # fallback: Р±РµСЂС‘Рј РїСЂСЏРјС‹С… РґРµС‚РµР№ СЂСѓС‚Р° РєР°Рє СЃС‚СЂРѕРєРё
         return list(root)
 
-    # выбираем группу с максимальным количеством элементов
+    # РІС‹Р±РёСЂР°РµРј РіСЂСѓРїРїСѓ СЃ РјР°РєСЃРёРјР°Р»СЊРЅС‹Рј РєРѕР»РёС‡РµСЃС‚РІРѕРј СЌР»РµРјРµРЅС‚РѕРІ
     best = max(buckets.items(), key=lambda kv: len(kv[1]))
     return best[1]
 
@@ -98,9 +98,9 @@ def df_to_xlsx_bytes(df: pd.DataFrame) -> bytes:
     return output.getvalue()
 
 with st.sidebar:
-    st.subheader("Источник")
+    st.subheader("РСЃС‚РѕС‡РЅРёРє")
     url = st.text_input("XML URL", FEED_URL)
-    refresh = st.button("Обновить (сбросить кэш)")
+    refresh = st.button("РћР±РЅРѕРІРёС‚СЊ (СЃР±СЂРѕСЃРёС‚СЊ РєСЌС€)")
 
 if refresh:
     st.cache_data.clear()
@@ -108,16 +108,16 @@ if refresh:
 try:
     root = load_xml(url)
 except Exception as e:
-    st.error(f"Не удалось загрузить XML: {e}")
+    st.error(f"РќРµ СѓРґР°Р»РѕСЃСЊ Р·Р°РіСЂСѓР·РёС‚СЊ XML: {e}")
     st.stop()
 
 rows_nodes = find_repeating_nodes(root)
 rows = [flatten_element(n, prefix=f"{n.tag}/") for n in rows_nodes]
 df = pd.DataFrame(rows).fillna("")
 
-st.caption(f"Строк: {len(df)} • Колонок: {len(df.columns)}")
+st.caption(f"РЎС‚СЂРѕРє: {len(df)} вЂў РљРѕР»РѕРЅРѕРє: {len(df.columns)}")
 
-# Таблица с фильтрами
+# РўР°Р±Р»РёС†Р° СЃ С„РёР»СЊС‚СЂР°РјРё
 gb = GridOptionsBuilder.from_dataframe(df)
 gb.configure_default_column(filter=True, sortable=True, resizable=True)
 gb.configure_grid_options(domLayout="normal")
@@ -137,14 +137,14 @@ df_filtered = grid_response["data"]
 col1, col2 = st.columns(2)
 with col1:
     st.download_button(
-        "Скачать ВСЁ (Excel)",
+        "РЎРєР°С‡Р°С‚СЊ Р’РЎРЃ (Excel)",
         data=df_to_xlsx_bytes(df),
         file_name="xml_full.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 with col2:
     st.download_button(
-        "Скачать ОТФИЛЬТРОВАННОЕ (Excel)",
+        "РЎРєР°С‡Р°С‚СЊ РћРўР¤РР›Р¬РўР РћР’РђРќРќРћР• (Excel)",
         data=df_to_xlsx_bytes(df_filtered),
         file_name="xml_filtered.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
